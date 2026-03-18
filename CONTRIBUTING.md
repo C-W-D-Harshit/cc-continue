@@ -14,17 +14,19 @@ Thanks for your interest in contributing!
    ```bash
    npm link
    ```
-4. Make your changes to `index.js`
+4. Make your changes
 5. Test by running `cc-continue` in a project directory where you've used Claude Code
 
 ## Development
 
-This is a single-file CLI tool with zero dependencies. Let's keep it that way.
+This is a zero-dependency CLI tool built on Node.js built-ins. Keep it dependency-free unless there is a strong reason not to.
 
 ### Project Structure
 
 ```
-index.js        # The entire CLI
+index.js              # CLI entrypoint
+src/                  # Internal modules
+test/                 # Node test suite + fixtures
 package.json
 README.md
 LICENSE
@@ -33,35 +35,41 @@ LICENSE
 ### Testing Your Changes
 
 ```bash
-# Test raw output (no API key needed)
-cd /path/to/any/project/with/claude-sessions
-cc-continue --raw
+# Run the automated test suite
+npm test
 
-# Test with OpenRouter
-cc-continue
+# Smoke test the CLI help
+npm run smoke:help
+
+# Check environment diagnostics
+cc-continue doctor
+
+# Inspect local sessions for the current project
+cc-continue sessions
 ```
 
 ## Guidelines
 
-- **Zero dependencies** — everything uses Node.js built-ins (`fs`, `path`, `https`, `readline`, `child_process`)
-- **Keep it simple** — this is a single-purpose tool, not a framework
-- **macOS first** — clipboard uses `pbcopy`. PRs to support `xclip`/`xsel` on Linux or `clip` on Windows are welcome
-- **Don't break `--raw`** — the raw fallback should always work without any API key or network access
+- **Zero dependencies** — everything should use Node.js built-ins
+- **Don't break `--raw`** — the raw fallback must always work without a network call
+- **Keep fixtures realistic** — parser changes should be backed by JSONL fixtures from real Claude session shapes
+- **Preserve CLI ergonomics** — help text, error messages, and diagnostics are part of the product
 
 ## Submitting a PR
 
 1. Create a branch: `git checkout -b my-feature`
 2. Make your changes
-3. Test both `--raw` and OpenRouter modes
+3. Run `npm test`
+4. Smoke test `cc-continue --raw` in a real Claude project if your change touches parsing or prompt generation
 4. Push and open a PR
 
 ## Ideas for Contributions
 
-- Linux/Windows clipboard support
-- `--last N` flag to grab context from the last N conversation turns
+- Additional provider adapters beyond OpenRouter
+- Session browsing and selection UX
 - Support for other session formats (Cursor, Windsurf, etc.)
-- Better handling of very large sessions (streaming JSONL parse)
-- `--model` flag to pick a specific OpenRouter model
+- Better large-session summarization strategies
+- JSON output modes for other automation workflows
 
 ## License
 

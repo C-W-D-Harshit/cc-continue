@@ -1,6 +1,6 @@
 {
   "name": "cc-continue",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Continue Claude Code sessions when you hit usage limits — generates a handoff prompt for Codex or other agents",
   "main": "index.js",
   "bin": {
@@ -8,12 +8,15 @@
   },
   "files": [
     "index.js",
+    "src",
     "LICENSE",
     "README.md",
     "CONTRIBUTING.md"
   ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "smoke:help": "node index.js --help",
+    "smoke:doctor": "node index.js doctor"
   },
   "keywords": [
     "claude-code",
@@ -28,6 +31,13 @@
   ],
   "author": "Harshit",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bugs": {
+    "url": "https://github.com/C-W-D-Harshit/cc-continue/issues"
+  },
+  "homepage": "https://github.com/C-W-D-Harshit/cc-continue#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/C-W-D-Harshit/cc-continue"
