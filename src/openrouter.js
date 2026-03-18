@@ -1,5 +1,18 @@
 const https = require("https");
 
+function buildOpenRouterPayload({ model, systemPrompt, userPrompt }) {
+  return {
+    model,
+    reasoning: {
+      effort: "none",
+    },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  };
+}
+
 function parseJsonSafely(value) {
   try {
     return JSON.parse(value);
@@ -97,13 +110,13 @@ async function refineWithOpenRouter({
   timeoutMs = 60000,
   onStatus,
 }) {
-  const body = JSON.stringify({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  const body = JSON.stringify(
+    buildOpenRouterPayload({
+      model,
+      systemPrompt,
+      userPrompt,
+    })
+  );
 
   return new Promise((resolve) => {
     let receivedFirstChunk = false;
@@ -202,6 +215,7 @@ async function refineWithOpenRouter({
 }
 
 module.exports = {
+  buildOpenRouterPayload,
   classifyOpenRouterError,
   refineWithOpenRouter,
 };

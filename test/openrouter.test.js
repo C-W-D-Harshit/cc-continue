@@ -1,6 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { classifyOpenRouterError } = require("../src/openrouter");
+const { buildOpenRouterPayload, classifyOpenRouterError } = require("../src/openrouter");
+
+test("buildOpenRouterPayload disables reasoning by default", () => {
+  const payload = buildOpenRouterPayload({
+    model: "openrouter/free",
+    systemPrompt: "system",
+    userPrompt: "user",
+  });
+
+  assert.equal(payload.reasoning.effort, "none");
+  assert.equal(payload.messages.length, 2);
+});
 
 test("classifyOpenRouterError detects privacy policy guardrail failures", () => {
   const result = classifyOpenRouterError({
