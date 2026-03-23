@@ -1,8 +1,9 @@
-const fs = require("fs");
-const path = require("path");
-const { execFileSync } = require("child_process");
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import type { GitContext } from "./types.js";
 
-function runGit(args, cwd, timeout = 5000) {
+function runGit(args: string[], cwd: string, timeout: number = 5000) {
   try {
     const stdout = execFileSync("git", args, {
       cwd,
@@ -10,24 +11,25 @@ function runGit(args, cwd, timeout = 5000) {
       timeout,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    return { ok: true, stdout: stdout.trim() };
+    return { ok: true as const, stdout: stdout.trim() };
   } catch (error) {
+    const gitError = error as NodeJS.ErrnoException & { stderr?: string | Buffer; status?: number };
     return {
-      ok: false,
+      ok: false as const,
       stdout: "",
-      stderr: error.stderr ? String(error.stderr).trim() : "",
-      code: typeof error.status === "number" ? error.status : 1,
+      stderr: gitError.stderr ? String(gitError.stderr).trim() : "",
+      code: typeof gitError.status === "number" ? gitError.status : 1,
     };
   }
 }
 
-function truncate(text, maxChars) {
+function truncate(text: string, maxChars: number): string {
   if (!text) return "";
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
 }
 
-function readUntrackedPreview(cwd, relativePath, maxChars) {
+function readUntrackedPreview(cwd: string, relativePath: string, maxChars: number): string | null {
   try {
     const fullPath = path.join(cwd, relativePath);
     const buffer = fs.readFileSync(fullPath);
@@ -40,7 +42,10 @@ function readUntrackedPreview(cwd, relativePath, maxChars) {
   }
 }
 
-function getGitContext(cwd, options = {}) {
+export function getGitContext(
+  cwd: string,
+  options: { maxDiffChars?: number; maxUntrackedPreviewChars?: number } = {}
+): GitContext {
   const maxDiffChars = options.maxDiffChars || 12000;
   const maxUntrackedPreviewChars = options.maxUntrackedPreviewChars || 1500;
   const repoCheck = runGit(["rev-parse", "--is-inside-work-tree"], cwd, 3000);
@@ -67,8 +72,6 @@ function getGitContext(cwd, options = {}) {
         : null;
 
   const statusResult = runGit(["status", "--short", "--untracked-files=all"], cwd, 5000);
-  const status = statusResult.ok ? statusResult.stdout : "";
-
   const stagedStatResult = runGit(["diff", "--cached", "--stat"], cwd, 5000);
   const stagedDiffResult = runGit(["diff", "--cached"], cwd, 5000);
   const unstagedStatResult = runGit(["diff", "--stat"], cwd, 5000);
@@ -84,15 +87,12 @@ function getGitContext(cwd, options = {}) {
     }));
 
   const stagedDiff = truncate(stagedDiffResult.ok ? stagedDiffResult.stdout : "", maxDiffChars / 2);
-  const unstagedDiff = truncate(
-    unstagedDiffResult.ok ? unstagedDiffResult.stdout : "",
-    maxDiffChars / 2
-  );
+  const unstagedDiff = truncate(unstagedDiffResult.ok ? unstagedDiffResult.stdout : "", maxDiffChars / 2);
 
   return {
     isGitRepo: true,
     branch,
-    status,
+    status: statusResult.ok ? statusResult.stdout : "",
     staged: {
       stat: stagedStatResult.ok ? stagedStatResult.stdout : "",
       diff: stagedDiff,
@@ -102,14 +102,6 @@ function getGitContext(cwd, options = {}) {
       diff: unstagedDiff,
     },
     untracked,
-    hasChanges:
-      Boolean(status) ||
-      Boolean(stagedDiff) ||
-      Boolean(unstagedDiff) ||
-      untracked.length > 0,
+    hasChanges: Boolean(statusResult.ok ? statusResult.stdout : "") || Boolean(stagedDiff) || Boolean(unstagedDiff) || untracked.length > 0,
   };
 }
-
-module.exports = {
-  getGitContext,
-};

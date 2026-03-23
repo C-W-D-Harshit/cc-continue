@@ -1,14 +1,19 @@
-function compactText(text, maxChars = 800) {
+import type { ConfidenceReport, DoctorReport, SessionContext, Target } from "./types.js";
+
+function compactText(text: string, maxChars: number = 800): string {
   const compacted = String(text || "").replace(/\s+/g, " ").trim();
   if (compacted.length <= maxChars) return compacted;
   return `${compacted.slice(0, maxChars)}...`;
 }
 
-function unique(list) {
+function unique<T>(list: T[]): T[] {
   return [...new Set(list.filter(Boolean))];
 }
 
-function selectTranscriptEntries(transcript, options = {}) {
+function selectTranscriptEntries(
+  transcript: SessionContext["transcript"],
+  options: { tailCount?: number; maxChars?: number } = {}
+): string[] {
   const firstUser = transcript.find((entry) => entry.role === "user");
   const tailCount = options.tailCount || 14;
   const maxChars = options.maxChars || 7000;
@@ -26,7 +31,7 @@ function selectTranscriptEntries(transcript, options = {}) {
   }
 
   let totalChars = 0;
-  const result = [];
+  const result: string[] = [];
   for (const entry of selected) {
     const line = `${entry.role.toUpperCase()}: ${compactText(entry.text, 900)}`;
     if (totalChars + line.length > maxChars) {
@@ -39,8 +44,8 @@ function selectTranscriptEntries(transcript, options = {}) {
   return result;
 }
 
-function buildConfidenceReport(ctx) {
-  const caveats = [];
+export function buildConfidenceReport(ctx: SessionContext): ConfidenceReport {
+  const caveats: string[] = [];
   const git = ctx.gitContext;
 
   if (!git.isGitRepo) {
@@ -67,7 +72,7 @@ function buildConfidenceReport(ctx) {
   };
 }
 
-function formatGitSections(gitContext) {
+function formatGitSections(gitContext: SessionContext["gitContext"]): string {
   if (!gitContext.isGitRepo) {
     return "## Git State\n\nNot a git repository.\n";
   }
@@ -128,7 +133,7 @@ function formatGitSections(gitContext) {
   return output;
 }
 
-function buildTargetGuidance(target) {
+function buildTargetGuidance(target: Target | undefined): string {
   switch (target) {
     case "codex":
       return "The next agent is Codex. It should inspect the current files first, avoid redoing completed work, and finish any remaining implementation or verification.";
@@ -141,7 +146,7 @@ function buildTargetGuidance(target) {
   }
 }
 
-function buildRawPrompt(ctx, options = {}) {
+export function buildRawPrompt(ctx: SessionContext, options: { target?: Target } = {}): string {
   const transcript = selectTranscriptEntries(ctx.transcript);
   const userMessages = ctx.messages
     .filter((message) => message.role === "user" && message.content)
@@ -205,12 +210,12 @@ function buildRawPrompt(ctx, options = {}) {
   return prompt;
 }
 
-function buildRefinementDump(ctx, options = {}) {
+export function buildRefinementDump(ctx: SessionContext, options: { target?: Target } = {}): string {
   const transcript = selectTranscriptEntries(ctx.transcript, { tailCount: 18, maxChars: 9000 });
   const confidence = buildConfidenceReport(ctx);
   const untrackedFiles = ctx.gitContext.untracked.slice(0, 6);
   const omittedUntrackedCount = Math.max(ctx.gitContext.untracked.length - untrackedFiles.length, 0);
-  const sections = [];
+  const sections: string[] = [];
 
   sections.push("=== PROJECT ===");
   sections.push(`Target: ${options.target || "generic"}`);
@@ -292,7 +297,7 @@ function buildRefinementDump(ctx, options = {}) {
   return sections.join("\n");
 }
 
-function buildRefinementSystemPrompt(target) {
+export function buildRefinementSystemPrompt(target: Target): string {
   return [
     "You create continuation prompts for AI coding agents.",
     "You receive a structured dump of an interrupted Claude Code session.",
@@ -309,7 +314,7 @@ function buildRefinementSystemPrompt(target) {
   ].join("\n");
 }
 
-function formatDoctorReport(report) {
+export function formatDoctorReport(report: DoctorReport): string {
   const lines = ["cc-continue doctor", ""];
 
   for (const check of report.checks) {
@@ -326,11 +331,3 @@ function formatDoctorReport(report) {
 
   return lines.join("\n");
 }
-
-module.exports = {
-  buildRawPrompt,
-  buildRefinementDump,
-  buildRefinementSystemPrompt,
-  buildConfidenceReport,
-  formatDoctorReport,
-};

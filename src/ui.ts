@@ -1,5 +1,7 @@
-function createColors(enabled) {
-  const wrap = (code) => (text) => (enabled ? `\u001b[${code}m${text}\u001b[0m` : text);
+import type { DoctorReport, GitContext, ParsedOptions, SessionContext, SessionRecord } from "./types.js";
+
+function createColors(enabled: boolean) {
+  const wrap = (code: string) => (text: string) => (enabled ? `\u001b[${code}m${text}\u001b[0m` : text);
   return {
     bold: wrap("1"),
     dim: wrap("2"),
@@ -10,41 +12,41 @@ function createColors(enabled) {
   };
 }
 
-function createTheme(stream = process.stderr) {
+export function createTheme(stream: NodeJS.WriteStream = process.stderr) {
   const enabled = Boolean(stream.isTTY) && !process.env.NO_COLOR;
   const colors = createColors(enabled);
 
-  function write(line = "") {
+  function write(line: string = ""): void {
     stream.write(`${line}\n`);
   }
 
   return {
-    step(message) {
+    step(message: string) {
       write(`${colors.cyan("[..]")} ${message}`);
     },
-    success(message) {
+    success(message: string) {
       write(`${colors.green("[ok]")} ${message}`);
     },
-    warn(message) {
+    warn(message: string) {
       write(`${colors.yellow("[!!]")} ${message}`);
     },
-    note(message) {
+    note(message: string) {
       write(`${colors.dim(" -> ")} ${message}`);
     },
-    section(title) {
+    section(title: string) {
       write(colors.bold(title));
     },
-    plain(message = "") {
+    plain(message: string = "") {
       write(message);
     },
   };
 }
 
-function pad(value, width) {
+function pad(value: string | number, width: number): string {
   return String(value).padEnd(width, " ");
 }
 
-function formatRelativeTime(timestamp) {
+function formatRelativeTime(timestamp: number): string {
   if (!timestamp) return "unknown";
   const deltaSeconds = Math.max(1, Math.round((Date.now() - timestamp) / 1000));
   if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
@@ -56,7 +58,7 @@ function formatRelativeTime(timestamp) {
   return `${days}d ago`;
 }
 
-function summarizeGitContext(gitContext) {
+function summarizeGitContext(gitContext: GitContext): string {
   if (!gitContext.isGitRepo) {
     return "not a git repo";
   }
@@ -68,14 +70,24 @@ function summarizeGitContext(gitContext) {
     return gitContext.branch ? `${gitContext.branch}, clean` : "clean";
   }
 
-  const parts = [];
+  const parts: string[] = [];
   if (gitContext.branch) parts.push(gitContext.branch);
   if (changed) parts.push(`${changed} changed`);
   if (untracked) parts.push(`${untracked} untracked`);
   return parts.join(", ");
 }
 
-function formatRunSummary({ ctx, options, mode, model }) {
+export function formatRunSummary({
+  ctx,
+  options,
+  mode,
+  model,
+}: {
+  ctx: SessionContext;
+  options: ParsedOptions;
+  mode: "raw" | "refined";
+  model: string | null;
+}): string {
   const lines = [];
   lines.push("Run Summary");
   lines.push(`  Session: ${ctx.sessionId}`);
@@ -84,13 +96,11 @@ function formatRunSummary({ ctx, options, mode, model }) {
   lines.push(`  Files: ${ctx.filesModified.length} modified, ${ctx.filesRead.length} read`);
   lines.push(`  Git: ${summarizeGitContext(ctx.gitContext)}`);
   lines.push(`  Target: ${options.target}`);
-  lines.push(
-    `  Mode: ${mode === "raw" ? "raw" : `refined via ${options.provider}${model ? ` (${model})` : ""}`}`
-  );
+  lines.push(`  Mode: ${mode === "raw" ? "raw" : `refined via ${options.provider}${model ? ` (${model})` : ""}`}`);
   return lines.join("\n");
 }
 
-function formatDoctorReport(report) {
+export function formatDoctorReport(report: DoctorReport): string {
   const lines = ["cc-continue doctor", ""];
 
   for (const check of report.checks) {
@@ -116,7 +126,15 @@ function formatDoctorReport(report) {
   return lines.join("\n");
 }
 
-function formatSessionsReport({ cwd, sessions, limit }) {
+export function formatSessionsReport({
+  cwd,
+  sessions,
+  limit,
+}: {
+  cwd: string;
+  sessions: SessionRecord[];
+  limit: number;
+}): string {
   const lines = ["cc-continue sessions", "", `Project: ${cwd}`, ""];
 
   if (sessions.length === 0) {
@@ -136,9 +154,7 @@ function formatSessionsReport({ cwd, sessions, limit }) {
   lines.push(`${"-".repeat(idWidth)}  ${"-".repeat(ageWidth)}  ${"-".repeat(40)}`);
 
   for (const session of visible) {
-    lines.push(
-      `${pad(session.id, idWidth)}  ${pad(formatRelativeTime(session.mtimeMs), ageWidth)}  ${session.path}`
-    );
+    lines.push(`${pad(session.id, idWidth)}  ${pad(formatRelativeTime(session.mtimeMs), ageWidth)}  ${session.path}`);
   }
 
   if (sessions.length > visible.length) {
@@ -148,10 +164,3 @@ function formatSessionsReport({ cwd, sessions, limit }) {
 
   return lines.join("\n");
 }
-
-module.exports = {
-  createTheme,
-  formatDoctorReport,
-  formatRunSummary,
-  formatSessionsReport,
-};

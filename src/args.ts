@@ -1,10 +1,13 @@
-const path = require("path");
+import path from "node:path";
+import {
+  SUPPORTED_COMMANDS,
+  SUPPORTED_PROVIDERS,
+  SUPPORTED_TARGETS,
+  type PackageInfo,
+  type ParsedOptions,
+} from "./types.js";
 
-const SUPPORTED_COMMANDS = ["continue", "doctor", "sessions"];
-const SUPPORTED_PROVIDERS = ["openrouter"];
-const SUPPORTED_TARGETS = ["generic", "codex", "cursor", "chatgpt"];
-
-function requireValue(flag, args) {
+function requireValue(flag: string, args: string[]): string {
   const value = args.shift();
   if (!value || value.startsWith("-")) {
     throw new Error(`Missing value for ${flag}`);
@@ -12,9 +15,9 @@ function requireValue(flag, args) {
   return value;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv: string[]): ParsedOptions {
   const args = [...argv];
-  const options = {
+  const options: ParsedOptions = {
     command: "continue",
     raw: false,
     copy: false,
@@ -60,7 +63,7 @@ function parseArgs(argv) {
         options.model = requireValue(arg, args);
         break;
       case "--provider":
-        options.provider = requireValue(arg, args);
+        options.provider = requireValue(arg, args) as ParsedOptions["provider"];
         break;
       case "--output":
       case "-o":
@@ -70,13 +73,16 @@ function parseArgs(argv) {
         options.apiKey = requireValue(arg, args);
         break;
       case "--target":
-        options.target = requireValue(arg, args);
+        options.target = requireValue(arg, args) as ParsedOptions["target"];
         break;
       case "--limit":
       case "-n":
         options.limit = Number(requireValue(arg, args));
         break;
       default:
+        if (!arg) {
+          break;
+        }
         if (arg.startsWith("-")) {
           throw new Error(`Unknown flag: ${arg}`);
         }
@@ -113,7 +119,7 @@ function parseArgs(argv) {
   return options;
 }
 
-function getHelpText({ name, version }) {
+export function getHelpText({ name, version }: PackageInfo): string {
   return [
     `${name} ${version}`,
     "",
@@ -154,11 +160,3 @@ function getHelpText({ name, version }) {
     `  ${name} sessions --limit 5`,
   ].join("\n");
 }
-
-module.exports = {
-  SUPPORTED_COMMANDS,
-  SUPPORTED_PROVIDERS,
-  SUPPORTED_TARGETS,
-  getHelpText,
-  parseArgs,
-};

@@ -1,11 +1,12 @@
-const { spawnSync } = require("child_process");
+import { spawnSync } from "node:child_process";
+import type { ClipboardResult, ClipboardStrategy } from "./types.js";
 
-function hasCommand(command) {
+function hasCommand(command: string): boolean {
   const probe = spawnSync("which", [command], { stdio: "ignore" });
   return probe.status === 0;
 }
 
-function getClipboardStrategy() {
+export function getClipboardStrategy(): ClipboardStrategy | null {
   if (process.platform === "darwin") {
     return { command: "pbcopy", args: [] };
   }
@@ -29,7 +30,7 @@ function getClipboardStrategy() {
   return null;
 }
 
-function copyToClipboard(text) {
+export function copyToClipboard(text: string): ClipboardResult {
   const strategy = getClipboardStrategy();
   if (!strategy) {
     return { ok: false, error: "No supported clipboard utility found" };
@@ -49,8 +50,3 @@ function copyToClipboard(text) {
 
   return { ok: true, command: strategy.command };
 }
-
-module.exports = {
-  copyToClipboard,
-  getClipboardStrategy,
-};

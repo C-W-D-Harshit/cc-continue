@@ -1,10 +1,10 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const path = require("path");
-const { buildSessionContext, parseSession } = require("../src/session");
+import assert from "node:assert/strict";
+import path from "node:path";
+import test from "node:test";
+import { buildSessionContext, parseSession } from "../src/session.js";
 
 test("parseSession extracts nested progress tool calls and ignores tool-only user results", () => {
-  const fixture = path.join(__dirname, "fixtures", "sample-session.jsonl");
+  const fixture = path.join(import.meta.dirname, "fixtures", "sample-session.jsonl");
   const { messages, meta } = parseSession(fixture);
 
   assert.equal(meta.sessionId, "demo-session");

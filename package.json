@@ -2,21 +2,25 @@
   "name": "cc-continue",
   "version": "1.1.1",
   "description": "Continue Claude Code sessions when you hit usage limits — generates a handoff prompt for Codex or other agents",
-  "main": "index.js",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "exports": "./dist/index.mjs",
   "bin": {
-    "cc-continue": "./index.js"
+    "cc-continue": "./dist/index.mjs"
   },
   "files": [
-    "index.js",
-    "src",
+    "dist",
     "LICENSE",
     "README.md",
     "CONTRIBUTING.md"
   ],
   "scripts": {
-    "test": "node --test",
-    "smoke:help": "node index.js --help",
-    "smoke:doctor": "node index.js doctor"
+    "build": "node ./scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --import tsx --test test/**/*.test.ts",
+    "smoke:help": "npm run build --silent && node dist/index.mjs --help",
+    "smoke:doctor": "npm run build --silent && node dist/index.mjs doctor",
+    "prepack": "npm run build"
   },
   "keywords": [
     "claude-code",
@@ -41,5 +45,11 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/C-W-D-Harshit/cc-continue"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "esbuild": "^0.25.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }

@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { parseArgs } = require("../src/args");
+import assert from "node:assert/strict";
+import test from "node:test";
+import { parseArgs } from "../src/args.js";
 
 test("parseArgs handles product flags", () => {
   const parsed = parseArgs([
@@ -24,7 +24,7 @@ test("parseArgs handles product flags", () => {
   assert.equal(parsed.provider, "openrouter");
   assert.equal(parsed.model, "openrouter/auto");
   assert.equal(parsed.target, "codex");
-  assert.match(parsed.output, /handoff\.md$/);
+  assert.match(parsed.output || "", /handoff\.md$/);
 });
 
 test("parseArgs supports doctor command", () => {

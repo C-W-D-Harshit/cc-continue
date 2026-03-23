@@ -1,48 +1,47 @@
-const fs = require("fs");
-const path = require("path");
-const packageJson = require("../package.json");
-const { getHelpText, parseArgs } = require("./args");
-const {
+import fs from "node:fs";
+import path from "node:path";
+import { getHelpText, parseArgs } from "./args.js";
+import { copyToClipboard } from "./clipboard.js";
+import {
   CONFIG_PATH,
   getApiKey,
   getDefaultModel,
   loadConfig,
   promptForApiKey,
   storeApiKey,
-} = require("./config");
-const { copyToClipboard } = require("./clipboard");
-const { runDoctor } = require("./doctor");
-const { getGitContext } = require("./git");
-const {
-  buildRefinementDump,
-  buildRefinementSystemPrompt,
-  buildRawPrompt,
-} = require("./prompt");
-const { refineWithOpenRouter } = require("./openrouter");
-const { buildSessionContext, listSessionsForProject, parseSession, resolveSessionPath } = require("./session");
-const { createTheme, formatDoctorReport, formatRunSummary, formatSessionsReport } = require("./ui");
+} from "./config.js";
+import { runDoctor } from "./doctor.js";
+import { getGitContext } from "./git.js";
+import { buildRawPrompt, buildRefinementDump, buildRefinementSystemPrompt } from "./prompt.js";
+import { refineWithOpenRouter } from "./openrouter.js";
+import { buildSessionContext, listSessionsForProject, parseSession, resolveSessionPath } from "./session.js";
+import { createTheme, formatDoctorReport, formatRunSummary, formatSessionsReport } from "./ui.js";
+import type { AppError, PackageInfo } from "./types.js";
 
-function fail(message, { exitCode = 1, suggestions = [] } = {}) {
-  const error = new Error(message);
+declare const __PACKAGE_NAME__: string;
+declare const __PACKAGE_VERSION__: string;
+
+function fail(message: string, { exitCode = 1, suggestions = [] as string[] } = {}): never {
+  const error = new Error(message) as AppError;
   error.exitCode = exitCode;
   error.suggestions = suggestions;
   throw error;
 }
 
-function createActivityReporter(label) {
+function createActivityReporter(label: string) {
   const stream = process.stderr;
   const start = Date.now();
   let status = "starting";
-  let timer = null;
+  let timer: NodeJS.Timeout | null = null;
   let lastRendered = "";
   const frames = ["|", "/", "-", "\\"];
   let frameIndex = 0;
 
-  function elapsedSeconds() {
+  function elapsedSeconds(): number {
     return Math.max(1, Math.round((Date.now() - start) / 1000));
   }
 
-  function render() {
+  function render(): void {
     const line = `${frames[frameIndex]} ${label}: ${status} (${elapsedSeconds()}s)`;
     frameIndex = (frameIndex + 1) % frames.length;
 
@@ -58,22 +57,20 @@ function createActivityReporter(label) {
     }
   }
 
-  function startTimer() {
+  function startTimer(): void {
     render();
     timer = setInterval(render, 1000);
-    if (typeof timer.unref === "function") {
-      timer.unref();
-    }
+    timer.unref();
   }
 
-  function update(nextStatus) {
+  function update(nextStatus: string): void {
     status = nextStatus;
     if (stream.isTTY) {
       render();
     }
   }
 
-  function stop(finalStatus) {
+  function stop(finalStatus: string): void {
     if (timer) {
       clearInterval(timer);
     }
@@ -91,14 +88,14 @@ function createActivityReporter(label) {
   return { update, stop };
 }
 
-function writeOutputFile(outputPath, text) {
+function writeOutputFile(outputPath: string, text: string): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${text}\n`);
 }
 
-async function main(argv = process.argv.slice(2)) {
+export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseArgs(argv);
-  const pkgInfo = { name: packageJson.name, version: packageJson.version };
+  const pkgInfo: PackageInfo = { name: __PACKAGE_NAME__, version: __PACKAGE_VERSION__ };
   const ui = createTheme(process.stderr);
 
   if (options.help) {
@@ -107,7 +104,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (options.version) {
-    process.stdout.write(`${packageJson.version}\n`);
+    process.stdout.write(`${pkgInfo.version}\n`);
     return;
   }
 
@@ -167,8 +164,8 @@ async function main(argv = process.argv.slice(2)) {
   });
 
   let finalPrompt = "";
-  let mode = "raw";
-  let activeModel = null;
+  let mode: "raw" | "refined" = "raw";
+  let activeModel: string | null = null;
 
   if (options.raw) {
     ui.step("Building raw continuation prompt");
@@ -257,7 +254,3 @@ async function main(argv = process.argv.slice(2)) {
   ui.success(`Prompt ready (${finalPrompt.length} chars)`);
   process.stdout.write(`${finalPrompt}\n`);
 }
-
-module.exports = {
-  main,
-};

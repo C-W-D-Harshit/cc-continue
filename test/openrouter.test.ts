@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { buildOpenRouterPayload, classifyOpenRouterError } = require("../src/openrouter");
+import assert from "node:assert/strict";
+import test from "node:test";
+import { buildOpenRouterPayload, classifyOpenRouterError } from "../src/openrouter.js";
 
 test("buildOpenRouterPayload disables reasoning by default", () => {
   const payload = buildOpenRouterPayload({

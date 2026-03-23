@@ -1,12 +1,12 @@
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { execFileSync } = require("child_process");
-const { getGitContext } = require("../src/git");
+import { execFileSync } from "node:child_process";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { getGitContext } from "../src/git.js";
 
-function git(args, cwd) {
+function git(args: string[], cwd: string): void {
   execFileSync("git", args, {
     cwd,
     stdio: "ignore",
@@ -36,6 +36,6 @@ test("getGitContext captures status, diffs, and untracked previews", () => {
   assert.match(gitContext.status, /tracked\.txt/);
   assert.match(gitContext.status, /\?\? notes\.md/);
   assert.match(gitContext.unstaged.diff, /hello world/);
-  assert.equal(gitContext.untracked[0].path, "notes.md");
-  assert.match(gitContext.untracked[0].preview, /Pending work/);
+  assert.equal(gitContext.untracked[0]?.path, "notes.md");
+  assert.match(gitContext.untracked[0]?.preview || "", /Pending work/);
 });

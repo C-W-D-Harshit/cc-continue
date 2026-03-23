@@ -1,18 +1,19 @@
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { AppConfig, Provider } from "./types.js";
 
-const CONFIG_PATH = path.join(os.homedir(), ".cc-continue.json");
+export const CONFIG_PATH = path.join(os.homedir(), ".cc-continue.json");
 
-function loadConfig(configPath = CONFIG_PATH) {
+export function loadConfig(configPath: string = CONFIG_PATH): AppConfig {
   try {
-    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return JSON.parse(fs.readFileSync(configPath, "utf8")) as AppConfig;
   } catch {
     return {};
   }
 }
 
-function saveConfig(config, configPath = CONFIG_PATH) {
+export function saveConfig(config: AppConfig, configPath: string = CONFIG_PATH): void {
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   try {
     fs.chmodSync(configPath, 0o600);
@@ -21,16 +22,21 @@ function saveConfig(config, configPath = CONFIG_PATH) {
   }
 }
 
-function getProviderConfig(config, provider) {
+function getProviderConfig(config: AppConfig, provider: Provider) {
   return config.providers?.[provider] || {};
 }
 
-function getApiKey({
+export function getApiKey({
   provider,
   cliValue,
   env = process.env,
   config = loadConfig(),
-}) {
+}: {
+  provider: Provider;
+  cliValue: string | null;
+  env?: NodeJS.ProcessEnv;
+  config?: AppConfig;
+}): string | null {
   if (cliValue) return cliValue;
 
   if (provider === "openrouter" && env.OPENROUTER_API_KEY) {
@@ -41,14 +47,30 @@ function getApiKey({
   return providerConfig.apiKey || config.openrouter_api_key || null;
 }
 
-function getDefaultModel({ provider, cliValue, config = loadConfig() }) {
+export function getDefaultModel({
+  provider,
+  cliValue,
+  config = loadConfig(),
+}: {
+  provider: Provider;
+  cliValue: string | null;
+  config?: AppConfig;
+}): string {
   if (cliValue) return cliValue;
 
   const providerConfig = getProviderConfig(config, provider);
   return providerConfig.model || "openrouter/free";
 }
 
-function storeApiKey({ provider, apiKey, configPath = CONFIG_PATH }) {
+export function storeApiKey({
+  provider,
+  apiKey,
+  configPath = CONFIG_PATH,
+}: {
+  provider: Provider;
+  apiKey: string;
+  configPath?: string;
+}): void {
   const config = loadConfig(configPath);
   config.providers = config.providers || {};
   config.providers[provider] = config.providers[provider] || {};
@@ -61,11 +83,15 @@ function storeApiKey({ provider, apiKey, configPath = CONFIG_PATH }) {
   saveConfig(config, configPath);
 }
 
-function promptForApiKey({
+export function promptForApiKey({
   provider,
   input = process.stdin,
   output = process.stderr,
-}) {
+}: {
+  provider: Provider;
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+}): Promise<string | null> {
   if (!input.isTTY || !output.isTTY) {
     return Promise.resolve(null);
   }
@@ -77,7 +103,7 @@ function promptForApiKey({
     let buffer = "";
     const previousRawMode = input.isRaw;
 
-    function cleanup() {
+    function cleanup(): void {
       input.removeListener("data", onData);
       if (input.isTTY) {
         input.setRawMode(Boolean(previousRawMode));
@@ -85,19 +111,19 @@ function promptForApiKey({
       input.pause();
     }
 
-    function finish(value) {
+    function finish(value: string): void {
       cleanup();
       output.write("\n");
       resolve(value.trim() || null);
     }
 
-    function onData(chunk) {
+    function onData(chunk: string | Buffer): void {
       const text = chunk.toString("utf8");
 
       if (text === "\u0003") {
         cleanup();
         output.write("\n");
-        const error = new Error("Prompt cancelled");
+        const error = new Error("Prompt cancelled") as Error & { exitCode?: number };
         error.exitCode = 130;
         reject(error);
         return;
@@ -126,13 +152,3 @@ function promptForApiKey({
     input.on("data", onData);
   });
 }
-
-module.exports = {
-  CONFIG_PATH,
-  getApiKey,
-  getDefaultModel,
-  loadConfig,
-  promptForApiKey,
-  saveConfig,
-  storeApiKey,
-};

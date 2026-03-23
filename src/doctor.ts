@@ -1,14 +1,28 @@
-const { getApiKey } = require("./config");
-const { getClipboardStrategy } = require("./clipboard");
-const { getGitContext } = require("./git");
-const { CLAUDE_DIR, PROJECTS_DIR, findLatestSession, listSessionsForProject } = require("./session");
+import fs from "node:fs";
+import { getClipboardStrategy } from "./clipboard.js";
+import { getApiKey } from "./config.js";
+import { getGitContext } from "./git.js";
+import { CLAUDE_DIR, PROJECTS_DIR, findLatestSession, listSessionsForProject } from "./session.js";
+import type { AppConfig, DoctorReport, Provider } from "./types.js";
 
-function runDoctor({ cwd, provider, cliApiKey, env, config }) {
-  const checks = [];
-  const notes = [];
-  const nextSteps = [];
+export function runDoctor({
+  cwd,
+  provider,
+  cliApiKey,
+  env,
+  config,
+}: {
+  cwd: string;
+  provider: Provider;
+  cliApiKey: string | null;
+  env: NodeJS.ProcessEnv;
+  config: AppConfig;
+}): DoctorReport {
+  const checks: DoctorReport["checks"] = [];
+  const notes: string[] = [];
+  const nextSteps: string[] = [];
 
-  const claudeDirExists = require("fs").existsSync(CLAUDE_DIR);
+  const claudeDirExists = fs.existsSync(CLAUDE_DIR);
   checks.push({
     status: claudeDirExists ? "OK" : "WARN",
     label: "Claude dir",
@@ -90,7 +104,3 @@ function runDoctor({ cwd, provider, cliApiKey, env, config }) {
 
   return { checks, notes, nextSteps };
 }
-
-module.exports = {
-  runDoctor,
-};

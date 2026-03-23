@@ -1,6 +1,32 @@
-const https = require("https");
+import https from "node:https";
+import type { IncomingMessage } from "node:http";
+import type {
+  OpenRouterErrorDetails,
+  OpenRouterPayload,
+  OpenRouterRefinementResult,
+} from "./types.js";
 
-function buildOpenRouterPayload({ model, systemPrompt, userPrompt }) {
+interface OpenRouterApiResponse {
+  error?: {
+    message?: string;
+  };
+  message?: string;
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+}
+
+export function buildOpenRouterPayload({
+  model,
+  systemPrompt,
+  userPrompt,
+}: {
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}): OpenRouterPayload {
   return {
     model,
     reasoning: {
@@ -13,15 +39,23 @@ function buildOpenRouterPayload({ model, systemPrompt, userPrompt }) {
   };
 }
 
-function parseJsonSafely(value) {
+function parseJsonSafely(value: string): OpenRouterApiResponse | null {
   try {
-    return JSON.parse(value);
+    return JSON.parse(value) as OpenRouterApiResponse;
   } catch {
     return null;
   }
 }
 
-function classifyOpenRouterError({ statusCode, body, requestError }) {
+export function classifyOpenRouterError({
+  statusCode,
+  body = "",
+  requestError,
+}: {
+  statusCode?: number;
+  body?: string;
+  requestError?: string;
+}): OpenRouterErrorDetails {
   if (requestError) {
     return {
       category: "network",
@@ -38,11 +72,7 @@ function classifyOpenRouterError({ statusCode, body, requestError }) {
     parsed?.error?.message || parsed?.message || (body ? String(body).slice(0, 500) : "Unknown provider error");
   const lower = providerMessage.toLowerCase();
 
-  if (
-    statusCode === 404 &&
-    lower.includes("guardrail restrictions") &&
-    lower.includes("data policy")
-  ) {
+  if (statusCode === 404 && lower.includes("guardrail restrictions") && lower.includes("data policy")) {
     return {
       category: "privacy-policy",
       message:
@@ -95,21 +125,26 @@ function classifyOpenRouterError({ statusCode, body, requestError }) {
   return {
     category: "provider",
     message: statusCode ? `OpenRouter error ${statusCode}: ${providerMessage}` : providerMessage,
-    suggestions: [
-      "Retry with `cc-continue --raw` if you want to skip refinement.",
-    ],
+    suggestions: ["Retry with `cc-continue --raw` if you want to skip refinement."],
     raw: providerMessage,
   };
 }
 
-async function refineWithOpenRouter({
+export async function refineWithOpenRouter({
   apiKey,
   model,
   systemPrompt,
   userPrompt,
   timeoutMs = 60000,
   onStatus,
-}) {
+}: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  timeoutMs?: number;
+  onStatus?: (status: string) => void;
+}): Promise<OpenRouterRefinementResult> {
   const body = JSON.stringify(
     buildOpenRouterPayload({
       model,
@@ -131,10 +166,10 @@ async function refineWithOpenRouter({
           Authorization: `Bearer ${apiKey}`,
         },
       },
-      (res) => {
+      (res: IncomingMessage) => {
         onStatus?.(`provider responded (${res.statusCode || "unknown"})`);
         let data = "";
-        res.on("data", (chunk) => {
+        res.on("data", (chunk: Buffer | string) => {
           if (!receivedFirstChunk) {
             receivedFirstChunk = true;
             onStatus?.("receiving response");
@@ -159,7 +194,7 @@ async function refineWithOpenRouter({
           }
 
           try {
-            const json = JSON.parse(data);
+            const json = JSON.parse(data) as OpenRouterApiResponse;
             if (json.error) {
               const classified = classifyOpenRouterError({
                 statusCode: res.statusCode,
@@ -170,7 +205,7 @@ async function refineWithOpenRouter({
                 error: classified.message,
                 category: classified.category,
                 suggestions: classified.suggestions,
-                rawError: classified.raw || (json.error.message || JSON.stringify(json.error)),
+                rawError: classified.raw || json.error.message || JSON.stringify(json.error),
               });
               return;
             }
@@ -198,7 +233,7 @@ async function refineWithOpenRouter({
       req.destroy(new Error("Provider request timed out"));
     });
 
-    req.on("error", (error) => {
+    req.on("error", (error: Error) => {
       const classified = classifyOpenRouterError({ requestError: error.message });
       resolve({
         ok: false,
@@ -213,9 +248,3 @@ async function refineWithOpenRouter({
     req.end();
   });
 }
-
-module.exports = {
-  buildOpenRouterPayload,
-  classifyOpenRouterError,
-  refineWithOpenRouter,
-};
