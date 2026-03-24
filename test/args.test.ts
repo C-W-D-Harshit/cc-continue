@@ -4,8 +4,7 @@ import { parseArgs } from "../src/args.js";
 
 test("parseArgs handles product flags", () => {
   const parsed = parseArgs([
-    "--raw",
-    "--copy",
+    "--refine",
     "--session",
     "abc123",
     "--provider",
@@ -18,8 +17,7 @@ test("parseArgs handles product flags", () => {
     "./handoff.md",
   ]);
 
-  assert.equal(parsed.raw, true);
-  assert.equal(parsed.copy, true);
+  assert.equal(parsed.refine, true);
   assert.equal(parsed.session, "abc123");
   assert.equal(parsed.provider, "openrouter");
   assert.equal(parsed.model, "openrouter/auto");

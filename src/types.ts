@@ -8,8 +8,7 @@ export type Target = (typeof SUPPORTED_TARGETS)[number];
 
 export interface ParsedOptions {
   command: Command;
-  raw: boolean;
-  copy: boolean;
+  refine: boolean;
   help: boolean;
   version: boolean;
   session: string | null;

@@ -167,8 +167,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   let mode: "raw" | "refined" = "raw";
   let activeModel: string | null = null;
 
-  if (options.raw) {
-    ui.step("Building raw continuation prompt");
+  if (!options.refine) {
+    ui.step("Building continuation prompt");
     finalPrompt = buildRawPrompt(ctx, { target: options.target });
   } else {
     const provider = options.provider;

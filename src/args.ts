@@ -19,8 +19,7 @@ export function parseArgs(argv: string[]): ParsedOptions {
   const args = [...argv];
   const options: ParsedOptions = {
     command: "continue",
-    raw: false,
-    copy: false,
+    refine: false,
     help: false,
     version: false,
     session: null,
@@ -49,12 +48,8 @@ export function parseArgs(argv: string[]): ParsedOptions {
       case "-v":
         options.version = true;
         break;
-      case "--raw":
-        options.raw = true;
-        break;
-      case "--copy":
-      case "-c":
-        options.copy = true;
+      case "--refine":
+        options.refine = true;
         break;
       case "--session":
         options.session = requireValue(arg, args);
@@ -133,17 +128,16 @@ export function getHelpText({ name, version }: PackageInfo): string {
     "Core Options",
     "  -h, --help              Show help",
     "  -v, --version           Show version",
-    "      --raw               Skip provider refinement and output the structured raw prompt",
-    "  -c, --copy              Copy the final prompt to the clipboard",
     "  -o, --output <file>     Write the final prompt to a file",
     "      --session <id|path> Use a specific session file or session id",
+    "      --target <name>     Prompt target: generic, codex, cursor, chatgpt",
     "  -n, --limit <count>     Limit rows for the sessions command (default: 10)",
     "",
-    "Refinement",
+    "Refinement (optional)",
+    "      --refine             Refine the prompt via an LLM provider (default: raw mode)",
     "      --provider <name>   Refinement provider (default: openrouter)",
     "      --model <name>      Provider model override (default: openrouter/free)",
     "      --api-key <key>     Provider API key override",
-    "      --target <name>     Prompt target: generic, codex, cursor, chatgpt",
     "",
     "Doctor",
     "  Verifies Claude session discovery, git context, clipboard support, and API key availability.",
@@ -153,8 +147,8 @@ export function getHelpText({ name, version }: PackageInfo): string {
     "",
     "Examples",
     `  ${name}`,
-    `  ${name} --raw --copy --target codex`,
-    `  ${name} --session 4474da94-50a9-40de-9afe-c6c73acf2401 --model openrouter/free`,
+    `  ${name} --target codex`,
+    `  ${name} --refine --model openrouter/free`,
     `  ${name} --output ./handoff.md`,
     `  ${name} doctor`,
     `  ${name} sessions --limit 5`,
