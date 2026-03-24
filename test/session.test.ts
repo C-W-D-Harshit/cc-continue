@@ -30,6 +30,8 @@ test("parseSession extracts nested progress tool calls and ignores tool-only use
       unstaged: { stat: "", diff: "" },
       untracked: [],
       hasChanges: false,
+      recentCommits: "",
+      committedDiff: "",
     },
   });
 

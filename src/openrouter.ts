@@ -29,9 +29,6 @@ export function buildOpenRouterPayload({
 }): OpenRouterPayload {
   return {
     model,
-    reasoning: {
-      effort: "none",
-    },
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

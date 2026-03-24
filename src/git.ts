@@ -59,6 +59,8 @@ export function getGitContext(
       unstaged: { stat: "", diff: "" },
       untracked: [],
       hasChanges: false,
+      recentCommits: "",
+      committedDiff: "",
     };
   }
 
@@ -89,6 +91,17 @@ export function getGitContext(
   const stagedDiff = truncate(stagedDiffResult.ok ? stagedDiffResult.stdout : "", maxDiffChars / 2);
   const unstagedDiff = truncate(unstagedDiffResult.ok ? unstagedDiffResult.stdout : "", maxDiffChars / 2);
 
+  const recentCommitsResult = runGit(["log", "--oneline", "-15"], cwd, 5000);
+  const recentCommits = recentCommitsResult.ok ? recentCommitsResult.stdout : "";
+
+  let committedDiff = "";
+  if (recentCommits) {
+    const commitCount = recentCommits.split("\n").filter(Boolean).length;
+    const diffDepth = Math.min(commitCount, 8);
+    const committedDiffResult = runGit(["diff", `HEAD~${diffDepth}..HEAD`, "--stat"], cwd, 5000);
+    committedDiff = committedDiffResult.ok ? truncate(committedDiffResult.stdout, maxDiffChars / 2) : "";
+  }
+
   return {
     isGitRepo: true,
     branch,
@@ -103,5 +116,7 @@ export function getGitContext(
     },
     untracked,
     hasChanges: Boolean(statusResult.ok ? statusResult.stdout : "") || Boolean(stagedDiff) || Boolean(unstagedDiff) || untracked.length > 0,
+    recentCommits,
+    committedDiff,
   };
 }

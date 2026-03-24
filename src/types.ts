@@ -65,12 +65,16 @@ export interface GitContext {
   unstaged: GitDiffSection;
   untracked: UntrackedFile[];
   hasChanges: boolean;
+  recentCommits: string;
+  committedDiff: string;
 }
 
 export interface ToolCall {
   id: string | null;
   tool: string;
   input: Record<string, unknown>;
+  result?: string | null;
+  isError?: boolean;
 }
 
 export interface SessionMessage {
@@ -136,9 +140,6 @@ export interface ConfidenceReport {
 
 export interface OpenRouterPayload {
   model: string;
-  reasoning: {
-    effort: "none";
-  };
   messages: Array<{
     role: "system" | "user";
     content: string;

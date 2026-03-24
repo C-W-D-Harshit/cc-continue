@@ -13,6 +13,8 @@ interface SessionContentItem {
   name?: string;
   input?: Record<string, unknown>;
   content?: unknown;
+  tool_use_id?: string;
+  is_error?: boolean;
 }
 
 interface SessionRecordJson {
@@ -126,6 +128,29 @@ function extractToolCalls(content: string | SessionContentItem[] | undefined): T
     }));
 }
 
+function extractToolResults(content: string | SessionContentItem[] | undefined): Map<string, { result: string; isError: boolean }> {
+  const results = new Map<string, { result: string; isError: boolean }>();
+  if (!Array.isArray(content)) return results;
+
+  for (const item of content) {
+    if (item && item.type === "tool_result" && item.tool_use_id) {
+      const text = typeof item.content === "string"
+        ? item.content
+        : Array.isArray(item.content)
+          ? (item.content as SessionContentItem[])
+              .filter((c) => c.type === "text")
+              .map((c) => c.text || "")
+              .join("\n")
+          : "";
+      results.set(item.tool_use_id, {
+        result: text.slice(0, 1500),
+        isError: Boolean(item.is_error),
+      });
+    }
+  }
+  return results;
+}
+
 function collectMessageCandidates(record: SessionRecordJson) {
   const candidates: Array<{
     role: "user" | "assistant";
@@ -185,6 +210,23 @@ export function parseSession(sessionPath: string): { messages: SessionMessage[];
       const toolCalls = extractToolCalls(content);
 
       if (candidate.role === "user") {
+        // Extract tool results and attach them to the most recent assistant's tool calls
+        const toolResults = extractToolResults(content);
+        if (toolResults.size > 0 && messages.length > 0) {
+          for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === "assistant") {
+              for (const tc of messages[i].toolCalls) {
+                if (tc.id && toolResults.has(tc.id)) {
+                  const res = toolResults.get(tc.id)!;
+                  tc.result = res.result;
+                  tc.isError = res.isError;
+                }
+              }
+              break;
+            }
+          }
+        }
+
         const hasToolResultOnly =
           Array.isArray(content) &&
           content.some((item) => item.type === "tool_result") &&
@@ -266,9 +308,15 @@ export function buildSessionContext({
         .map((toolCall) => {
           const filePath = extractFilePath(toolCall.input);
           const command = extractCommand(toolCall.input);
-          if (filePath) return `${toolCall.tool} ${filePath}`;
-          if (command) return `${toolCall.tool}: ${command}`;
-          return toolCall.tool;
+          let summary = "";
+          if (filePath) summary = `${toolCall.tool} ${filePath}`;
+          else if (command) summary = `${toolCall.tool}: ${command}`;
+          else summary = toolCall.tool;
+
+          if (toolCall.isError && toolCall.result) {
+            summary += ` [ERROR: ${toolCall.result.slice(0, 200)}]`;
+          }
+          return summary;
         })
         .join(", ");
       if (toolSummary) {

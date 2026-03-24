@@ -1,7 +1,10 @@
 import type { ConfidenceReport, DoctorReport, SessionContext, Target } from "./types.js";
 
 function compactText(text: string, maxChars: number = 800): string {
-  const compacted = String(text || "").replace(/\s+/g, " ").trim();
+  let compacted = String(text || "")
+    .replace(/[ \t]+/g, " ")       // collapse horizontal whitespace only
+    .replace(/\n{3,}/g, "\n\n")    // collapse excessive blank lines
+    .trim();
   if (compacted.length <= maxChars) return compacted;
   return `${compacted.slice(0, maxChars)}...`;
 }
@@ -10,31 +13,73 @@ function unique<T>(list: T[]): T[] {
   return [...new Set(list.filter(Boolean))];
 }
 
+function scoreTranscriptEntry(entry: SessionContext["transcript"][number], index: number, total: number): number {
+  let score = 0;
+  const text = entry.text.toLowerCase();
+
+  // User messages are always important — they contain instructions
+  if (entry.role === "user") score += 3;
+
+  // Errors and failures are critical context for the next agent
+  if (text.includes("[error") || text.includes("error:") || text.includes("failed") || text.includes("exception")) score += 5;
+
+  // File modifications show what was actually done
+  if (text.includes("edit ") || text.includes("write ") || text.includes("create ")) score += 2;
+
+  // Test/build commands show verification state
+  if (text.includes("npm test") || text.includes("npm run") || text.includes("make") || text.includes("cargo") || text.includes("pytest")) score += 2;
+
+  // Recency matters — more recent is more relevant
+  const recencyFactor = index / total;
+  score += recencyFactor * 4;
+
+  return score;
+}
+
 function selectTranscriptEntries(
   transcript: SessionContext["transcript"],
   options: { tailCount?: number; maxChars?: number } = {}
 ): string[] {
+  const maxChars = options.maxChars || 9000;
+  const maxEntries = options.tailCount || 20;
+
+  if (transcript.length === 0) return [];
+
+  // Always include first user message (the original goal)
   const firstUser = transcript.find((entry) => entry.role === "user");
-  const tailCount = options.tailCount || 14;
-  const maxChars = options.maxChars || 7000;
-  const tail = transcript.slice(-tailCount);
-  const selected = [];
 
-  if (firstUser) {
-    selected.push(firstUser);
+  // Always include the tail (most recent context)
+  const tailSize = Math.min(8, transcript.length);
+  const tail = new Set(transcript.slice(-tailSize));
+
+  // Score all middle entries and pick the best ones
+  const middleEntries = transcript.slice(1, -tailSize);
+  const scored = middleEntries.map((entry, i) => ({
+    entry,
+    score: scoreTranscriptEntry(entry, i, middleEntries.length),
+  }));
+  scored.sort((a, b) => b.score - a.score);
+
+  // Build the selection in chronological order
+  const selectedSet = new Set<SessionContext["transcript"][number]>();
+  if (firstUser) selectedSet.add(firstUser);
+  for (const entry of tail) selectedSet.add(entry);
+
+  const remainingSlots = maxEntries - selectedSet.size;
+  for (let i = 0; i < Math.min(remainingSlots, scored.length); i++) {
+    selectedSet.add(scored[i].entry);
   }
 
-  for (const entry of tail) {
-    if (!selected.includes(entry)) {
-      selected.push(entry);
-    }
-  }
+  // Sort back to chronological order
+  const selected = transcript.filter((entry) => selectedSet.has(entry));
 
+  // Format with char budget
   let totalChars = 0;
   const result: string[] = [];
   for (const entry of selected) {
-    const line = `${entry.role.toUpperCase()}: ${compactText(entry.text, 900)}`;
+    const line = `${entry.role.toUpperCase()}: ${compactText(entry.text, 1200)}`;
     if (totalChars + line.length > maxChars) {
+      result.push(`... [${selected.length - result.length} more entries omitted for space]`);
       break;
     }
     result.push(line);
@@ -130,6 +175,18 @@ function formatGitSections(gitContext: SessionContext["gitContext"]): string {
     output += "```\n\n";
   }
 
+  if (gitContext.recentCommits) {
+    output += "### Recent Commits\n\n```text\n";
+    output += `${gitContext.recentCommits}\n`;
+    output += "```\n\n";
+  }
+
+  if (gitContext.committedDiff) {
+    output += "### Recently Committed Changes (stat)\n\n```text\n";
+    output += `${gitContext.committedDiff}\n`;
+    output += "```\n\n";
+  }
+
   return output;
 }
 
@@ -146,17 +203,45 @@ function buildTargetGuidance(target: Target | undefined): string {
   }
 }
 
+function extractErrors(messages: SessionContext["messages"]): string[] {
+  const errors: string[] = [];
+  for (const msg of messages) {
+    for (const tc of msg.toolCalls) {
+      if (tc.isError && tc.result) {
+        const filePath = tc.input.file_path || tc.input.path || tc.input.command || "";
+        errors.push(`${tc.tool}(${filePath}): ${tc.result.slice(0, 300)}`);
+      }
+    }
+  }
+  return errors;
+}
+
+function extractKeyDecisions(messages: SessionContext["messages"]): string[] {
+  const decisions: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !msg.content) continue;
+    const lower = msg.content.toLowerCase();
+    // Detect when the agent changed approach, made a choice, or explained strategy
+    if (lower.includes("instead") || lower.includes("let me try") || lower.includes("switching to") ||
+        lower.includes("the issue is") || lower.includes("the problem is") || lower.includes("root cause")) {
+      decisions.push(compactText(msg.content, 300));
+    }
+  }
+  return decisions.slice(-5); // Keep only most recent decisions
+}
+
 export function buildRawPrompt(ctx: SessionContext, options: { target?: Target } = {}): string {
   const transcript = selectTranscriptEntries(ctx.transcript);
   const userMessages = ctx.messages
     .filter((message) => message.role === "user" && message.content)
     .map((message) => compactText(message.content, 500));
   const confidence = buildConfidenceReport(ctx);
+  const errors = extractErrors(ctx.messages);
+  const decisions = extractKeyDecisions(ctx.messages);
 
   let prompt = "# Continue Claude Code Session\n\n";
   prompt += `Target: \`${options.target || "generic"}\`\n`;
   prompt += `Project cwd: \`${ctx.sessionCwd}\`\n`;
-  prompt += `Session file: \`${ctx.sessionPath}\`\n`;
   if (ctx.branch) {
     prompt += `Branch: \`${ctx.branch}\`\n`;
   }
@@ -170,6 +255,23 @@ export function buildRawPrompt(ctx: SessionContext, options: { target?: Target }
     prompt += `${userMessages[userMessages.length - 1]}\n\n`;
   }
 
+  if (errors.length > 0) {
+    prompt += "## Errors & Failures Encountered\n\n";
+    prompt += "IMPORTANT: These errors occurred during the previous session. Do NOT repeat the same approaches that caused them.\n\n";
+    for (const error of errors.slice(-8)) {
+      prompt += `- ${error}\n`;
+    }
+    prompt += "\n";
+  }
+
+  if (decisions.length > 0) {
+    prompt += "## Key Decisions & Discoveries\n\n";
+    for (const decision of decisions) {
+      prompt += `- ${decision}\n`;
+    }
+    prompt += "\n";
+  }
+
   prompt += "## Parsed Transcript\n\n";
   for (const line of transcript) {
     prompt += `${line}\n\n`;
@@ -178,6 +280,14 @@ export function buildRawPrompt(ctx: SessionContext, options: { target?: Target }
   if (ctx.filesModified.length > 0) {
     prompt += "## Files Modified During Session\n\n";
     for (const filePath of unique(ctx.filesModified)) {
+      prompt += `- \`${filePath}\`\n`;
+    }
+    prompt += "\n";
+  }
+
+  if (ctx.filesRead.length > 0) {
+    prompt += "## Files Read During Session\n\n";
+    for (const filePath of unique(ctx.filesRead).slice(0, 20)) {
       prompt += `- \`${filePath}\`\n`;
     }
     prompt += "\n";
@@ -204,15 +314,22 @@ export function buildRawPrompt(ctx: SessionContext, options: { target?: Target }
   prompt += "\n";
 
   prompt += "## Instructions For The Next Agent\n\n";
-  prompt += `${buildTargetGuidance(options.target)} `;
-  prompt += "Check the current state of modified files first, verify which tasks are already complete, and only then finish the remaining work.\n";
+  prompt += `${buildTargetGuidance(options.target)}\n\n`;
+  prompt += "**Critical steps before doing anything:**\n";
+  prompt += "1. Read the files listed in \"Files Modified\" to understand their CURRENT state — the diffs above may be outdated.\n";
+  prompt += "2. Check the errors section above (if any) and avoid repeating failed approaches.\n";
+  prompt += "3. Identify what is already complete vs what remains unfinished.\n";
+  prompt += "4. Only then proceed with the remaining work.\n";
+  prompt += "5. Run tests/builds to verify your changes work before declaring the task complete.\n";
 
   return prompt;
 }
 
 export function buildRefinementDump(ctx: SessionContext, options: { target?: Target } = {}): string {
-  const transcript = selectTranscriptEntries(ctx.transcript, { tailCount: 18, maxChars: 9000 });
+  const transcript = selectTranscriptEntries(ctx.transcript, { tailCount: 24, maxChars: 12000 });
   const confidence = buildConfidenceReport(ctx);
+  const errors = extractErrors(ctx.messages);
+  const decisions = extractKeyDecisions(ctx.messages);
   const untrackedFiles = ctx.gitContext.untracked.slice(0, 6);
   const omittedUntrackedCount = Math.max(ctx.gitContext.untracked.length - untrackedFiles.length, 0);
   const sections: string[] = [];
@@ -220,14 +337,29 @@ export function buildRefinementDump(ctx: SessionContext, options: { target?: Tar
   sections.push("=== PROJECT ===");
   sections.push(`Target: ${options.target || "generic"}`);
   sections.push(`Project cwd: ${ctx.sessionCwd}`);
-  sections.push(`Session file: ${ctx.sessionPath}`);
   if (ctx.branch) sections.push(`Git branch: ${ctx.branch}`);
 
   sections.push("\n=== USER GOALS ===");
   const userMessages = ctx.messages
     .filter((message) => message.role === "user" && message.content)
     .map((message) => `- ${compactText(message.content, 600)}`);
-  sections.push(userMessages.slice(0, 1).concat(userMessages.slice(-2)).join("\n") || "- No explicit user text found");
+  sections.push(userMessages.slice(0, 1).concat(userMessages.slice(-3)).join("\n") || "- No explicit user text found");
+
+  if (errors.length > 0) {
+    sections.push("\n=== ERRORS & FAILURES ===");
+    sections.push("These errors occurred during the session. The next agent MUST NOT repeat these approaches.");
+    for (const error of errors.slice(-8)) {
+      sections.push(`- ${error}`);
+    }
+  }
+
+  if (decisions.length > 0) {
+    sections.push("\n=== KEY DECISIONS & DISCOVERIES ===");
+    sections.push("Important conclusions reached during the session:");
+    for (const decision of decisions) {
+      sections.push(`- ${decision}`);
+    }
+  }
 
   sections.push("\n=== TRANSCRIPT EXCERPT ===");
   sections.push(transcript.join("\n"));
@@ -249,7 +381,7 @@ export function buildRefinementDump(ctx: SessionContext, options: { target?: Tar
       : "- No shell commands detected"
   );
 
-  sections.push("\n=== GIT STATUS ===");
+  sections.push("\n=== GIT STATE ===");
   sections.push(ctx.gitContext.status || "No git status entries");
   if (ctx.gitContext.staged.stat) {
     sections.push("\n--- STAGED STAT ---");
@@ -266,6 +398,14 @@ export function buildRefinementDump(ctx: SessionContext, options: { target?: Tar
   if (ctx.gitContext.unstaged.diff) {
     sections.push("\n--- UNSTAGED DIFF ---");
     sections.push(ctx.gitContext.unstaged.diff);
+  }
+  if (ctx.gitContext.recentCommits) {
+    sections.push("\n--- RECENT COMMITS ---");
+    sections.push(ctx.gitContext.recentCommits);
+  }
+  if (ctx.gitContext.committedDiff) {
+    sections.push("\n--- RECENTLY COMMITTED CHANGES ---");
+    sections.push(ctx.gitContext.committedDiff);
   }
   if (untrackedFiles.length > 0) {
     sections.push("\n--- UNTRACKED FILES ---");
@@ -285,11 +425,11 @@ export function buildRefinementDump(ctx: SessionContext, options: { target?: Tar
   sections.push("\n=== CONFIDENCE REPORT ===");
   sections.push(
     [
-      `sessionId=${confidence.sessionId}`,
       `messageCount=${confidence.messageCount}`,
       `filesModified=${confidence.filesModified}`,
       `filesRead=${confidence.filesRead}`,
       `commandsCaptured=${confidence.commandsCaptured}`,
+      `errorsDetected=${errors.length}`,
       ...confidence.caveats.map((caveat) => `caveat=${caveat}`),
     ].join("\n")
   );
@@ -298,20 +438,38 @@ export function buildRefinementDump(ctx: SessionContext, options: { target?: Tar
 }
 
 export function buildRefinementSystemPrompt(target: Target): string {
-  return [
-    "You create continuation prompts for AI coding agents.",
-    "You receive a structured dump of an interrupted Claude Code session.",
-    "Produce a concise but complete handoff prompt that another agent can immediately act on.",
-    "The prompt must include:",
-    "1. Context",
-    "2. What the user asked for",
-    "3. What was already completed",
-    "4. What remains",
-    "5. Current code state from git",
-    "6. Confidence or caveats when the data is incomplete",
-    `Target agent: ${target}. Tailor the final handoff wording for that target.`,
-    "Output only the handoff prompt. No preamble.",
-  ].join("\n");
+  return `You are an expert at creating continuation prompts for AI coding agents. You receive a structured dump of an interrupted Claude Code session and must produce a handoff prompt that lets the next agent pick up exactly where the previous one left off.
+
+Your output must be a single, actionable prompt with these sections:
+
+## Goal
+State what the user wants in 1-2 sentences. Use the user's own words where possible.
+
+## Completed Work
+List what was already done — files created/modified, features implemented, tests passing. Be specific with file paths.
+
+## Errors & Failed Approaches
+If any errors or failures occurred, list them clearly so the next agent does NOT waste time repeating them. Include what was tried and why it failed.
+
+## Remaining Work
+List exactly what still needs to be done. Be specific — "implement the validation logic in src/validator.ts" not "finish the feature".
+
+## Current Code State
+Summarize the git state: branch, what's committed, what's staged, what's modified but uncommitted. Mention specific files.
+
+## Key Files
+List the most important files the next agent should read first to understand the current state.
+
+## Action Plan
+Give the next agent a concrete numbered list of steps to follow, starting with "Read [specific files] to verify current state" and ending with verification steps.
+
+Rules:
+- Output ONLY the handoff prompt. No preamble, no meta-commentary.
+- Be specific and concrete. File paths, function names, error messages — not vague descriptions.
+- If the data is incomplete or ambiguous, say so explicitly rather than guessing.
+- Prioritize information density. Every sentence should help the next agent.
+- If errors/failures were found in the session, make them prominent — avoiding repeated mistakes is critical.
+- Target agent: ${target}. ${buildTargetGuidance(target)}`;
 }
 
 export function formatDoctorReport(report: DoctorReport): string {
