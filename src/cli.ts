@@ -202,16 +202,32 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       ui.section(formatRunSummary({ ctx, options, mode, model }));
       ui.plain();
       ui.step(`Refining prompt with ${provider} (${model})`);
-      ui.note("Free models can take a bit. Live status appears below.");
+      ui.note("Streaming response below:");
       const reporter = createActivityReporter("Refining prompt");
+      let streamStarted = false;
       const refined = await refineWithOpenRouter({
         apiKey,
         model,
         systemPrompt: buildRefinementSystemPrompt(options.target),
         userPrompt: buildRefinementDump(ctx, { target: options.target }),
-        onStatus: (status) => reporter.update(status),
+        timeoutMs: 0,
+        onStatus: (status) => {
+          if (!streamStarted) reporter.update(status);
+        },
+        onToken: (token) => {
+          if (!streamStarted) {
+            streamStarted = true;
+            reporter.stop("streaming");
+            process.stderr.write("\n");
+          }
+          process.stderr.write(token);
+        },
       });
-      reporter.stop(refined.ok ? "done" : "failed");
+      if (streamStarted) {
+        process.stderr.write("\n\n");
+      } else {
+        reporter.stop(refined.ok ? "done" : "failed");
+      }
 
       if (refined.ok) {
         finalPrompt = refined.text;

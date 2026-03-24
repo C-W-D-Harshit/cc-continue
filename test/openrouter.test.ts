@@ -11,7 +11,9 @@ test("buildOpenRouterPayload builds correct message structure", () => {
 
   assert.equal(payload.messages.length, 2);
   assert.equal(payload.messages[0].role, "system");
+  assert.equal(payload.messages[0].content, "system");
   assert.equal(payload.messages[1].role, "user");
+  assert.equal(payload.messages[1].content, "user");
 });
 
 test("classifyOpenRouterError detects privacy policy guardrail failures", () => {

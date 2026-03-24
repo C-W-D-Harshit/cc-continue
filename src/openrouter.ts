@@ -127,31 +127,47 @@ export function classifyOpenRouterError({
   };
 }
 
-export async function refineWithOpenRouter({
+interface StreamChunkChoice {
+  delta?: { content?: string };
+}
+
+interface StreamChunk {
+  choices?: StreamChunkChoice[];
+  error?: { message?: string };
+}
+
+function parseSSEChunk(line: string): string | null {
+  if (!line.startsWith("data: ")) return null;
+  const data = line.slice(6).trim();
+  if (data === "[DONE]") return null;
+  try {
+    const parsed = JSON.parse(data) as StreamChunk;
+    if (parsed.error) return null;
+    return parsed.choices?.[0]?.delta?.content || null;
+  } catch {
+    return null;
+  }
+}
+
+function doStreamRequest({
   apiKey,
-  model,
-  systemPrompt,
-  userPrompt,
-  timeoutMs = 60000,
+  body,
+  timeoutMs,
   onStatus,
+  onToken,
 }: {
   apiKey: string;
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  timeoutMs?: number;
+  body: string;
+  timeoutMs: number;
   onStatus?: (status: string) => void;
+  onToken?: (token: string) => void;
 }): Promise<OpenRouterRefinementResult> {
-  const body = JSON.stringify(
-    buildOpenRouterPayload({
-      model,
-      systemPrompt,
-      userPrompt,
-    })
-  );
 
   return new Promise((resolve) => {
-    let receivedFirstChunk = false;
+    let receivedFirstToken = false;
+    let fullText = "";
+    let sseBuffer = "";
+
     const req = https.request(
       {
         hostname: "openrouter.ai",
@@ -165,55 +181,61 @@ export async function refineWithOpenRouter({
       },
       (res: IncomingMessage) => {
         onStatus?.(`provider responded (${res.statusCode || "unknown"})`);
-        let data = "";
-        res.on("data", (chunk: Buffer | string) => {
-          if (!receivedFirstChunk) {
-            receivedFirstChunk = true;
-            onStatus?.("receiving response");
-          }
-          data += chunk;
-        });
-        res.on("end", () => {
-          onStatus?.("finalizing response");
-          if (res.statusCode && res.statusCode >= 400) {
-            const classified = classifyOpenRouterError({
-              statusCode: res.statusCode,
-              body: data,
-            });
+
+        // Non-streaming error response
+        if (res.statusCode && res.statusCode >= 400) {
+          let errorData = "";
+          res.on("data", (chunk: Buffer | string) => { errorData += chunk; });
+          res.on("end", () => {
+            const classified = classifyOpenRouterError({ statusCode: res.statusCode!, body: errorData });
             resolve({
               ok: false,
               error: classified.message,
               category: classified.category,
               suggestions: classified.suggestions,
-              rawError: classified.raw || data.slice(0, 500),
+              rawError: classified.raw || errorData.slice(0, 500),
             });
-            return;
+          });
+          return;
+        }
+
+        res.on("data", (chunk: Buffer | string) => {
+          sseBuffer += chunk;
+          const lines = sseBuffer.split("\n");
+          // Keep the last partial line in the buffer
+          sseBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            const token = parseSSEChunk(trimmed);
+            if (token) {
+              if (!receivedFirstToken) {
+                receivedFirstToken = true;
+                onStatus?.("streaming");
+              }
+              fullText += token;
+              onToken?.(token);
+            }
+          }
+        });
+
+        res.on("end", () => {
+          // Process any remaining buffer
+          if (sseBuffer.trim()) {
+            const token = parseSSEChunk(sseBuffer.trim());
+            if (token) {
+              fullText += token;
+              onToken?.(token);
+            }
           }
 
-          try {
-            const json = JSON.parse(data) as OpenRouterApiResponse;
-            if (json.error) {
-              const classified = classifyOpenRouterError({
-                statusCode: res.statusCode,
-                body: data,
-              });
-              resolve({
-                ok: false,
-                error: classified.message,
-                category: classified.category,
-                suggestions: classified.suggestions,
-                rawError: classified.raw || json.error.message || JSON.stringify(json.error),
-              });
-              return;
-            }
-
-            const text = json.choices?.[0]?.message?.content;
-            resolve(text ? { ok: true, text } : { ok: false, error: "Empty response" });
-          } catch {
-            resolve({
-              ok: false,
-              error: `Unable to parse provider response: ${data.slice(0, 500)}`,
-            });
+          if (fullText) {
+            resolve({ ok: true, text: fullText });
+          } else {
+            // Might be a non-streamed error in a 200 response
+            resolve({ ok: false, error: "Empty response from provider" });
           }
         });
       }
@@ -225,10 +247,12 @@ export async function refineWithOpenRouter({
       onStatus?.("waiting for provider");
     });
 
-    req.setTimeout(timeoutMs, () => {
-      onStatus?.("request timed out");
-      req.destroy(new Error("Provider request timed out"));
-    });
+    if (timeoutMs > 0) {
+      req.setTimeout(timeoutMs, () => {
+        onStatus?.("request timed out");
+        req.destroy(new Error("Provider request timed out"));
+      });
+    }
 
     req.on("error", (error: Error) => {
       const classified = classifyOpenRouterError({ requestError: error.message });
@@ -244,4 +268,37 @@ export async function refineWithOpenRouter({
     req.write(body);
     req.end();
   });
+}
+
+export async function refineWithOpenRouter({
+  apiKey,
+  model,
+  systemPrompt,
+  userPrompt,
+  timeoutMs = 0,
+  onStatus,
+  onToken,
+}: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  timeoutMs?: number;
+  onStatus?: (status: string) => void;
+  onToken?: (token: string) => void;
+}): Promise<OpenRouterRefinementResult> {
+  const payload = buildOpenRouterPayload({ model, systemPrompt, userPrompt });
+
+  // Try with low reasoning effort first (faster)
+  const fastBody = JSON.stringify({ ...payload, stream: true, reasoning: { effort: "low" } });
+  const firstResult = await doStreamRequest({ apiKey, body: fastBody, timeoutMs, onStatus, onToken });
+
+  // If the model rejected reasoning:none, retry without it
+  if (!firstResult.ok && firstResult.rawError && /reasoning/i.test(firstResult.rawError)) {
+    onStatus?.("retrying without reasoning flag");
+    const fallbackBody = JSON.stringify({ ...payload, stream: true });
+    return doStreamRequest({ apiKey, body: fallbackBody, timeoutMs, onStatus, onToken });
+  }
+
+  return firstResult;
 }
