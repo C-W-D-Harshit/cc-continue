@@ -1,7 +1,7 @@
 {
   "name": "ctx-switch",
-  "version": "2.0.3",
-  "description": "Switch context between AI coding agents — extract sessions from Claude Code, Codex, or OpenCode and generate handoff prompts",
+  "version": "2.0.4",
+  "description": "Switch coding agents without losing context. Generate handoff prompts across Claude Code, Codex, and OpenCode.",
   "type": "module",
   "main": "./dist/index.mjs",
   "exports": "./dist/index.mjs",
